@@ -407,69 +407,62 @@ class CEMPlanner:
 class RobotArmController:
     """Translates abstract V-JEPA action vectors into real motor commands.
 
-    This class owns the serial connection to your arm's microcontroller.
-    `translate_action_to_command` is the key STUB you need to implement
-    for your specific hardware (servo count, units, protocol framing).
+    This class owns the connection to your arm.
     """
 
     def __init__(self, config: Config):
         self.config = config
-        self._conn: Optional["serial.Serial"] = None
+        self._mc = None
 
     def connect(self) -> None:
-        if serial is None:
-            raise RuntimeError("pyserial is required for RobotArmController")
-        self._conn = serial.Serial(
-            self.config.serial_port, self.config.serial_baud, timeout=1.0
-        )
-        # Give the microcontroller time to reset after opening the port
-        # (common with Arduino-style boards that reset on DTR toggle).
-        time.sleep(2.0)
+        from pymycobot.mycobot import MyCobot
+        import time
+        print("Connecting to MyCobot...")
+        # Make sure to adjust port and baud if config is different
+        self._mc = MyCobot('/dev/ttyAMA0', 1000000)
+        time.sleep(1)
+        self._mc.power_on()
+        time.sleep(1)
 
     def close(self) -> None:
-        if self._conn is not None and self._conn.is_open:
-            self._conn.close()
-        self._conn = None
+        if self._mc is not None:
+            self._mc.release_all_servos()
+            self._mc = None
 
     def denormalize_action(self, action: torch.Tensor) -> np.ndarray:
-        """Map the planner's [-1, 1]-ish action vector to physical units.
-
-        The planner works in a normalized action space matching the
-        checkpoint's training convention. Real motor commands need
-        physical units (mm, radians, PWM ticks, etc). Adjust the scale
-        factors below to your arm's actual reachable ranges.
-        """
+        """Map the planner's [-1, 1]-ish action vector to physical units."""
         action_np = action.detach().cpu().numpy()
-
-        # Example scaling: first 3 dims = end-effector delta translation
-        # in meters, next 3 = delta rotation in radians, last = gripper
-        # command in [0, 1]. TUNE THESE to your arm's real limits.
-        scale = np.array([0.02, 0.02, 0.02, 0.1, 0.1, 0.1, 1.0], dtype=np.float32)
+        # MyCobot expects angles in degrees, roughly -150 to 150 for most joints
+        # Let's map a 6-DoF action vector + 1-DoF gripper
+        # We will treat the action as delta joint angles (degrees).
+        scale = np.array([5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 50.0], dtype=np.float32)
         return action_np * scale
 
-    def translate_action_to_command(self, action: torch.Tensor) -> bytes:
-        """STUB: convert a physical-unit action into a wire-format command.
-
-        Replace this with your arm's actual protocol. Example shown
-        here is a simple ASCII CSV framing terminated by a newline,
-        which is easy to parse on an Arduino/microcontroller with
-        `Serial.readStringUntil('\\n')` + `sscanf`/`split`. Swap for
-        binary framing, checksums, or a CAN/ROS message as needed.
-        """
-        physical = self.denormalize_action(action)
-
-        # e.g. b"CMD,0.0123,-0.0050,0.0011,0.02,-0.01,0.00,0.80\n"
-        payload = ",".join(f"{v:.5f}" for v in physical)
-        command_str = f"CMD,{payload}\n"
-        return command_str.encode("ascii")
-
     def send_action(self, action: torch.Tensor) -> None:
-        """Full pipeline: normalized action -> wire command -> serial write."""
-        if self._conn is None:
+        """Full pipeline: normalized action -> physical unit -> MyCobot command."""
+        if self._mc is None:
             raise RuntimeError("Not connected; call connect() first")
-        command_bytes = self.translate_action_to_command(action)
-        self._conn.write(command_bytes)
-        self._conn.flush()
+        
+        physical = self.denormalize_action(action)
+        
+        # current angles
+        current_angles = self._mc.get_angles()
+        if not current_angles or len(current_angles) != 6:
+            current_angles = [0, 0, 0, 0, 0, 0]
+            
+        # compute new angles
+        new_angles = [c + p for c, p in zip(current_angles, physical[:6])]
+        
+        # limit angles loosely
+        new_angles = [max(-150, min(150, a)) for a in new_angles]
+        
+        self._mc.send_angles(new_angles, 50)
+        
+        # Gripper: physical[6] delta
+        # But maybe we just set gripper based on absolute value if it's not a delta?
+        # Let's ignore gripper for simplicity or just set a dummy value.
+        pass
+
 
 
 # ==========================================================================

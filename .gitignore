@@ -1,0 +1,21 @@
+# Python virtual environments -- vjepa2_env alone is ~6.7GB
+vjepa2_env/
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Model weights
+checkpoints/
+*.pt
+*.pth
+*.safetensors
+
+# PlatformIO build output
+.pio/
+.pioenvs/
+
+# Never commit credentials
+*.env
+.env
+secrets*
