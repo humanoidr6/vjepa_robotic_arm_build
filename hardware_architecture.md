@@ -47,8 +47,10 @@ graph TD
 
     TRAJ <-->|USB Serial| TA
 
-    PCA1 -->|PWM x6| SERVOA[6x DS 150kg Servos - 6-Axis Arm]
-    PCA1 -->|PWM x1| GRIP1[1x Claw Gripper]
+    PCA1 -.->|PWM signal x6| SERVOA["6x DS51150 12V Servos - 6-Axis Arm"]
+    PCA1 -.->|PWM signal x1| GRIP1[1x Claw Gripper]
+    PBUS["12V Power Distribution Bus<br/>40A+ - NOT via PCA9685"] ==>|V+ / GND| SERVOA
+    PBUS ==>|V+ / GND| GRIP1
 
     TOUCH[Touch Sensor] -->|Analog/I2C| TA
     TA -->|USB Serial, tapped upstream| TOUCHAGG
@@ -68,7 +70,12 @@ graph TD
 | **Orchestration** | Raspberry Pi 5 8GB | ROS2 core / central state machine; converts IK joint waypoints into timed trajectories; dispatches trajectory segments to both Teensys over USB serial; sequences task phases (approach → grasp → retract) | ~50–100 Hz dispatch |
 | **Safety + Telemetry** | Raspberry Pi 4 | Independent watchdog: monitors servo bus current/voltage and Teensy heartbeat; hosts hardware/software E-stop that can cut PWM output regardless of what the Pi 5/Jetson/server are doing; aggregates the touch sensor stream for logging | ~100 Hz polling |
 | **Real-Time Control** | 1x Teensy 4.1 | Hard-real-time PWM generation via PCA9685 board for the 7 servos; closed-loop trajectory interpolation (S-curve/trapezoidal) between waypoints from Pi 5; samples the touch sensor directly for lowest-latency reflex response | ~500 Hz–1 kHz control loop |
-| **Actuation** | 6x DS 150kg servos, 1x claw gripper | Physical joint motion and grasp closure, driven by PWM from the PCA9685 board | — |
+| **Actuation** | 6x DS51150 servos, 1x claw gripper | Physical joint motion and grasp closure. PWM **signal** from the PCA9685; **power from a separate 12V distribution bus** (165 kg·cm, 8.0 A stall each — see `wiring_diagram.md`) | — |
+
+> **Status note:** the Cortex tier above is the target architecture, not the current setup. The
+> development machine has a single **GTX 1660 Ti (6 GB)**. The FSDP/DDP training phases in
+> `vjepa-robotic-arm-todo.md` are not feasible on it — inference and simulation are. Rescope or
+> secure the A100 access before planning around Phase 3.
 
 **Design rationale:** the split follows a classic hierarchical control stack — the A100s own the expensive, high-latency "thinking" (world model + planning over the network), the Jetson owns local perception and geometry (things that need the camera and can't tolerate round-trip latency), the Pi 5 owns sequencing/orchestration, and the Teensy owns the hard-real-time servo loop that must never stall waiting on a network call. The Pi 4 is kept off the control critical path specifically so the E-stop/monitoring function survives even if the Jetson, Pi 5, or network link hangs.
 

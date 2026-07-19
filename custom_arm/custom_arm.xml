@@ -1,0 +1,91 @@
+<!--
+  DS51150 6-Axis Arm — MuJoCo model
+
+  ============================ INCOMPLETE MODEL ============================
+  The joint origins in this file are NOT correct. Every body below sits at
+  pos="0 0 0", so all six links are stacked at the world origin. Kinematics
+  derived from this model are meaningless.
+
+  This is not an oversight. The source download (Cults3D, Gerhard_Nell) is a
+  print package: ten STLs each modeled about its own local origin and laid
+  out flat for the print bed, plus a Creality slicer 3MF whose transforms are
+  bed positions. Neither file carries the assembled robot pose, so there is
+  nothing to read the joint offsets from.
+
+  To finish this model, joint origins must come from one of:
+    1. A STEP / assembly file, if the designer provides one.
+    2. Detecting the servo-horn bore in each mesh and using those axes.
+    3. Measuring the printed parts with calipers.
+
+  Gravity stays disabled until the offsets are real -- with links stacked at
+  the origin, enabling it just collapses the model.
+
+  Known mesh issue: "DS5115 Joint 1.STL" (the designer's typo for DS51150)
+  has its bounding-box minimum at (556, 852, 1229) mm, retaining world
+  coordinates from the original assembly. Every other part starts near zero.
+  Expect it to sit apart from the rest until its offset is compensated.
+
+  Units: the STLs are millimetres (parts measure 130-284 mm). MuJoCo works in
+  metres, hence scale="0.001 0.001 0.001" on every mesh below.
+  ==========================================================================
+-->
+<mujoco model="ds51150_6axis">
+    <compiler angle="degree" coordinate="local" />
+    <option gravity="0 0 0" /> <!-- see header: re-enable once joint origins are real -->
+
+    <asset>
+        <mesh name="base"  file="Gerhard_Nell/ds51150-servo-6-axis-robot/DS51150 Joint 1 Base.STL" scale="0.001 0.001 0.001" />
+        <mesh name="link1" file="Gerhard_Nell/ds51150-servo-6-axis-robot/DS5115 Joint 1.STL"       scale="0.001 0.001 0.001" />
+        <mesh name="link2" file="Gerhard_Nell/ds51150-servo-6-axis-robot/DS51150  Joint 2.STL"     scale="0.001 0.001 0.001" />
+        <mesh name="link3" file="Gerhard_Nell/ds51150-servo-6-axis-robot/DS51150  Joint 3.STL"     scale="0.001 0.001 0.001" />
+        <mesh name="link4" file="Gerhard_Nell/ds51150-servo-6-axis-robot/DS51150  Joint 4.STL"     scale="0.001 0.001 0.001" />
+        <mesh name="link5" file="Gerhard_Nell/ds51150-servo-6-axis-robot/DS51150  Joint 5.STL"     scale="0.001 0.001 0.001" />
+        <mesh name="link6" file="Gerhard_Nell/ds51150-servo-6-axis-robot/DS51150  Joint 6.STL"     scale="0.001 0.001 0.001" />
+
+        <material name="dark"    rgba="0.2 0.2 0.2 1"/>
+        <material name="light"   rgba="0.7 0.7 0.7 1"/>
+        <material name="accent1" rgba="0.8 0.3 0.3 1"/>
+        <material name="accent2" rgba="0.3 0.3 0.8 1"/>
+    </asset>
+
+    <worldbody>
+        <light pos="0 0 3" dir="0 0 -1" diffuse="1 1 1"/>
+        <!-- <geom type="plane" size="1 1 0.1" rgba="0.9 0.9 0.9 1"/> -->
+
+        <body name="base_link" pos="0 0 0">
+            <geom type="mesh" mesh="base" material="dark" />
+
+            <!-- TODO(kinematics): every pos below is a placeholder. See header. -->
+            <body name="link1" pos="0 0 0">
+                <!-- Base yaw. DS51150: confirm 180 or 270 deg variant before setting range. -->
+                <joint name="joint1" type="hinge" axis="0 0 1" />
+                <geom type="mesh" mesh="link1" material="light" />
+
+                <body name="link2" pos="0 0 0">
+                    <joint name="joint2" type="hinge" axis="0 1 0" />
+                    <geom type="mesh" mesh="link2" material="accent1" />
+
+                    <body name="link3" pos="0 0 0">
+                        <joint name="joint3" type="hinge" axis="0 1 0" />
+                        <geom type="mesh" mesh="link3" material="light" />
+
+                        <body name="link4" pos="0 0 0">
+                            <joint name="joint4" type="hinge" axis="1 0 0" />
+                            <geom type="mesh" mesh="link4" material="dark" />
+
+                            <body name="link5" pos="0 0 0">
+                                <joint name="joint5" type="hinge" axis="0 1 0" />
+                                <geom type="mesh" mesh="link5" material="accent2" />
+
+                                <body name="link6" pos="0 0 0">
+                                    <joint name="joint6" type="hinge" axis="1 0 0" />
+                                    <geom type="mesh" mesh="link6" material="light" />
+                                </body>
+                            </body>
+                        </body>
+                    </body>
+                </body>
+            </body>
+        </body>
+    </worldbody>
+</mujoco>
