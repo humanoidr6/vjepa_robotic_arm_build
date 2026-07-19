@@ -114,6 +114,70 @@ inference. Mitigations worth trying, in order: `torch.load(..., mmap=True)`, con
 to fp16 and re-saving once, or loading on a larger machine and shipping a slimmed
 checkpoint.
 
+## Slimming the AC checkpoint: 11.76 GB -> 2.64 GB (verified working)
+
+The 11.76 GB `vjepa2-ac-vitg` does **not** need a big machine. Its actual contents:
+
+| Key | Params | Needed for inference |
+|---|---|---|
+| `target_encoder` | 1012.2M | **yes** (EMA encoder) |
+| `predictor` | 305.2M | **yes** |
+| `encoder` | 1012.2M | no — non-EMA duplicate of `target_encoder` |
+| `opt`, `scaler` | — | no — optimizer/AMP state |
+
+Keeping only `target_encoder` + `predictor` and casting to fp16 gives **1317.4M params,
+2.64 GB** — which fits a 6 GB laptop GPU and the Jetson Orin Nano's ~6 GB usable.
+
+`mmap=True` is what makes this possible on a 16 GB machine: tensors page in lazily, so
+peak RAM stays near the largest single tensor instead of 11.76 GB. Available RAM never
+dropped below 9 GB during the conversion.
+
+```python
+import torch
+sd = torch.load(SRC, map_location="cpu", mmap=True, weights_only=True)
+out = {
+    k: {n: (t.detach().clone().half() if t.is_floating_point() else t.detach().clone())
+        for n, t in sd[k].items()}
+    for k in ("target_encoder", "predictor")
+}
+torch.save(out, DST)
+```
+
+Note the AC checkpoint uses `target_encoder` (matching the loader's default), unlike the
+2.1 checkpoints which use `ema_encoder`.
+
+### Verified (19 Jul 2026, GTX 1660 Ti 6GB / 16GB RAM)
+
+```
+encoder:   missing=0 unexpected=0
+predictor: missing=0 unexpected=0
+encoder out (B,C,T,H,W)=(1,3,2,256,256) -> (1, 256, 1408)
+predictor.forward: (x, actions, states, extrinsics=None)
+```
+
+## The AC predictor needs more than images
+
+```python
+predictor.forward(x, actions, states, extrinsics=None)
+```
+
+- `x` — encoded observation tokens
+- `actions` — the candidate action sequence
+- `states` — **proprioceptive robot state**
+- `extrinsics` — camera pose relative to the robot (optional)
+
+Two consequences this project must plan for:
+
+**1. Proprioception.** The model expects to know where the arm currently *is*, not just
+what the camera sees. The DS51150 is a standard PWM servo with **no position feedback** —
+control is open-loop. The only available `states` signal is the *commanded* angle, which
+diverges from truth exactly when it matters most: under load, at stall, and after the
+gripper safety reflex freezes a joint. Options are to accept commanded-angle-as-state, add
+encoders, or read the servo potentiometer directly (a hardware modification).
+
+**2. Camera extrinsics.** Passing `extrinsics` means calibrating camera pose relative to
+the arm base. Optional in the signature, but the model was trained with it.
+
 ## Interface mismatch with `robot_binding.py`
 
 `VJEPAWorldModel` currently assumes:
